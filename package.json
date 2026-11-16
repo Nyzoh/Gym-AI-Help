@@ -1,0 +1,11 @@
+{
+  "name": "gym-ai-coach",
+  "version": "0.1.0",
+  "description": "Minimal AI gym coach: weekly training plan and nutrition advice from your profile.",
+  "private": true,
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test server/"
+  }
+}
