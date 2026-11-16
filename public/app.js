@@ -5,11 +5,22 @@ const errorBox = $('error');
 const gate = $('gate');
 const profileSection = $('profile');
 const result = $('result');
+const workspace = $('workspace');
+const chatLog = $('chat-log');
+const chatInput = $('chat-input');
+const chatSend = $('chat-send');
 const generateBtn = $('generate');
 
 // The access code is only kept in memory for this page load and sent to the
 // server with each request. It is never stored or baked into the frontend.
 let accessCode = '';
+
+// Chat state lives in memory only (no localStorage): like the plan, it is gone on reload.
+let currentProfile = null; // the profile the current plan was generated from
+let currentPlan = null;
+let chatHistory = []; // [{ role: 'user' | 'assistant', text }]
+const MAX_HISTORY = 10;
+const MAX_TEXT = 500;
 
 function showError(message, details) {
   errorBox.replaceChildren();
@@ -125,6 +136,8 @@ $('profile-form').addEventListener('submit', async (event) => {
   generateBtn.textContent = 'Generating… this can take up to a minute';
   try {
     const plan = await api('/api/plan', { code: accessCode, profile });
+    currentProfile = profile;
+    resetChat();
     renderPlan(plan);
   } catch (err) {
     showError(err.message, err.details);
@@ -139,6 +152,7 @@ $('profile-form').addEventListener('submit', async (event) => {
 });
 
 function renderPlan(plan) {
+  currentPlan = plan;
   result.replaceChildren();
 
   const intro = el('div', null, 'card');
@@ -184,7 +198,8 @@ function renderPlan(plan) {
     result.append(safety);
   }
 
-  result.hidden = false;
+  workspace.hidden = false;
+  document.body.classList.add('has-plan');
   result.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -193,5 +208,94 @@ function list(items) {
   (items || []).forEach((item) => ul.append(el('li', item)));
   return ul;
 }
+
+/* ---------- chat coach ---------- */
+
+function resetChat() {
+  chatHistory = [];
+  chatLog.replaceChildren(el('p', 'Ask about your plan, or ask for a change, e.g. "Swap squats for something easier on my knees".', 'chat-empty'));
+}
+
+function addBubble(role, text) {
+  const empty = chatLog.querySelector('.chat-empty');
+  if (empty) empty.remove();
+  const bubble = el('div', text, `bubble ${role}`);
+  chatLog.append(bubble);
+  chatLog.scrollTop = chatLog.scrollHeight;
+  return bubble;
+}
+
+function addChatError(message, details) {
+  const text = details && details.length ? `${message} ${details.join(' ')}` : message;
+  const bubble = addBubble('chat-error', text);
+  bubble.setAttribute('role', 'alert');
+}
+
+// The plan is never replaced automatically: the user has to click this button.
+function addApplyButton(bubble, updatedPlan) {
+  const button = el('button', 'Apply new plan', 'apply');
+  button.type = 'button';
+  button.addEventListener('click', () => {
+    renderPlan(updatedPlan);
+    button.disabled = true;
+    button.textContent = 'Plan applied';
+  });
+  bubble.append(button);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+async function sendChat() {
+  const message = chatInput.value.trim();
+  if (!message || chatSend.disabled || !currentPlan) return;
+
+  chatLog.querySelectorAll('.chat-error').forEach((node) => node.remove());
+  const userBubble = addBubble('user', message);
+  const pending = addBubble('assistant pending', 'Thinking…');
+  chatInput.value = '';
+  chatSend.disabled = true;
+
+  // The server accepts at most 10 history messages of 500 characters each.
+  const history = chatHistory.slice(-MAX_HISTORY).map((m) => ({ role: m.role, text: m.text.slice(0, MAX_TEXT) }));
+
+  try {
+    const answer = await api('/api/chat', {
+      code: accessCode,
+      profile: currentProfile,
+      plan: currentPlan,
+      history,
+      message,
+    });
+    pending.textContent = answer.reply;
+    pending.className = 'bubble assistant';
+    chatHistory.push({ role: 'user', text: message }, { role: 'assistant', text: answer.reply });
+    if (answer.updatedPlan) addApplyButton(pending, answer.updatedPlan);
+  } catch (err) {
+    // Put the message back so it can be retried, and show the error in the chat.
+    userBubble.remove();
+    pending.remove();
+    chatInput.value = message;
+    addChatError(err.message, err.details);
+    if (err.status === 401) {
+      accessCode = '';
+      showGate();
+      showError('Wrong access code. Enter the code again to keep chatting.');
+    }
+  } finally {
+    chatSend.disabled = false;
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+}
+
+$('chat-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  sendChat();
+});
+
+chatInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    sendChat();
+  }
+});
 
 init();

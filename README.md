@@ -6,11 +6,12 @@ Plain Node.js (22+) with **zero npm dependencies**, a vanilla JS frontend and Go
 ## Features
 
 - **AI-generated plan**: a day-by-day program (exercises, sets, reps, rest) plus calorie/protein targets and nutrition tips, tailored to weight, height, age, sex, goal, training days, equipment, typical diet and injuries.
+- **Chat coach**: ask follow-up questions about your plan in a chat panel. If you ask for a change, the coach proposes a complete new plan that is only applied when you click "Apply new plan".
 - **Secrets stay on the server**: the Gemini API key and the access code live only in `.env`. The frontend never sees the key, and the access code is checked server-side with a constant-time comparison.
-- **Rate limiting**: 20 calls per hour per IP (configurable).
+- **Rate limiting**: 20 AI calls per hour per IP (configurable), shared between plan generation and chat.
 - **Server-side validation** of all input, and a prompt that treats free-text fields as data, not instructions.
 - **Model fallback**: tries the models in `TEXT_MODELS` in order, with retries on overload.
-- **Mock mode**: `MOCK_AI=1` returns a fixed example plan so the app can be tested without an API key.
+- **Mock mode**: `MOCK_AI=1` returns a fixed example plan and fixed chat replies so the app can be tested without an API key. A chat message containing the word "change" returns a modified plan.
 - No build step, mobile friendly, light and dark theme.
 
 ## Run locally
@@ -45,13 +46,14 @@ For real AI answers, set `GEMINI_API_KEY` (from [Google AI Studio](https://aistu
 | `GET /api/health` | `{ status, needsCode, hasApiKey, mock }` |
 | `POST /api/check-code` | Body `{ code }`. `200` if correct, `401` otherwise. |
 | `POST /api/plan` | Body `{ code, profile }`. Returns `{ summary, weeklyPlan, nutrition, safetyNotes }`. |
+| `POST /api/chat` | Body `{ code, profile, plan, history, message }`. `message` is 1-500 characters, `history` is at most 10 `{ role: "user" \| "assistant", text }` entries, `plan` is a plan as returned by `/api/plan`. Returns `{ reply, updatedPlan }`, where `updatedPlan` is a full plan or `null`. |
 
 ## Project layout
 
 ```
 server/index.js      HTTP server, API routes, rate limit, Gemini client, static files
-server/prompt.js     Builds the AI prompt
-server/validate.js   Profile validation
+server/prompt.js     Builds the AI prompts (plan and chat)
+server/validate.js   Validation of profile, chat messages and plan shape
 server/*.test.js     Tests (node:test)
 public/              Frontend (index.html, app.js, style.css)
 ```
@@ -85,14 +87,19 @@ The app is meant to run the same way as the **AWS level 3** setup: a Node proces
 ## Known limitations
 
 - The rate limiter is in memory: it resets on restart and is not shared between instances.
-- One shared access code, no user accounts. Nothing is saved; a plan is lost when the page is reloaded.
+- One shared access code, no user accounts. Nothing is saved; the plan and the chat are lost when the page is reloaded.
+- The chat only remembers the last 10 messages, and long coach replies are cut to 500 characters when sent back as history.
+- The plan is sent from the browser with each chat message, so the coach works from whatever plan the client sends (it is shape-checked, not verified against the original).
 - AI output is shape-checked but not fact-checked. It is general fitness guidance, not medical advice.
 - Prompt-injection defences (data delimiting, strict output shape) reduce risk but cannot guarantee the model ignores hostile text.
 - A request can take a while in the worst case, since each model gets up to 3 attempts and a 40 s timeout.
-- No end-to-end or browser tests; only validation and prompt building are unit tested.
+- No end-to-end or browser tests; only validation, response checking and prompt building are unit tested.
+
+## Included now
+
+- **Chat coach**: follow-up questions about the plan ("swap squats for something knee-friendly"), with plan changes applied only on request.
 
 ## Next steps
 
 - **Workout log**: record completed sessions, weights and reps.
-- **Chat coach**: follow-up questions about the plan ("swap squats for something knee-friendly").
 - **History**: save earlier plans and progress, and feed them back into the next plan.

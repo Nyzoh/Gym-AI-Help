@@ -4,8 +4,8 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { validateProfile } = require('./validate');
-const { buildPrompt } = require('./prompt');
+const { validateProfile, validateChat, normalizePlan, normalizeChatReply } = require('./validate');
+const { buildPrompt, buildChatPrompt } = require('./prompt');
 
 const ROOT = path.join(__dirname, '..');
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -28,7 +28,7 @@ const TEXT_MODELS = (process.env.TEXT_MODELS || 'gemini-flash-latest')
   .map((m) => m.trim())
   .filter(Boolean);
 
-const MAX_BODY_BYTES = 16 * 1024;
+const MAX_BODY_BYTES = 64 * 1024;
 const MODEL_TIMEOUT_MS = 40_000;
 const MAX_ATTEMPTS_PER_MODEL = 3;
 const RETRY_WAITS_MS = [2000, 4000];
@@ -207,55 +207,13 @@ const MOCK_PLAN = {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const text = (value, max = 300) =>
-  (typeof value === 'string' || typeof value === 'number' ? String(value) : '').trim().slice(0, max);
-
-const textList = (value, maxItems = 10) =>
-  (Array.isArray(value) ? value : []).map((item) => text(item, 400)).filter(Boolean).slice(0, maxItems);
-
-// Force the model output into the documented response shape. Throws if unusable.
-function normalizePlan(raw) {
-  if (raw === null || typeof raw !== 'object' || !Array.isArray(raw.weeklyPlan)) {
-    throw new Error('Model response is missing weeklyPlan.');
-  }
-  const weeklyPlan = raw.weeklyPlan
-    .filter((day) => day && typeof day === 'object')
-    .slice(0, 7)
-    .map((day, i) => ({
-      day: text(day.day, 60) || `Day ${i + 1}`,
-      focus: text(day.focus, 120),
-      exercises: (Array.isArray(day.exercises) ? day.exercises : [])
-        .filter((ex) => ex && typeof ex === 'object' && text(ex.name))
-        .slice(0, 12)
-        .map((ex) => ({
-          name: text(ex.name, 120),
-          sets: text(ex.sets, 40),
-          reps: text(ex.reps, 40),
-          rest: text(ex.rest, 40),
-        })),
-    }))
-    .filter((day) => day.exercises.length > 0);
-  if (weeklyPlan.length === 0) throw new Error('Model response contains no exercises.');
-
-  const nutrition = raw.nutrition && typeof raw.nutrition === 'object' ? raw.nutrition : {};
-  return {
-    summary: text(raw.summary, 1000),
-    weeklyPlan,
-    nutrition: {
-      calories: text(nutrition.calories, 80),
-      protein: text(nutrition.protein, 80),
-      tips: textList(nutrition.tips),
-    },
-    safetyNotes: textList(raw.safetyNotes),
-  };
-}
-
 function parseModelJson(raw) {
   const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   return JSON.parse(trimmed);
 }
 
-async function callGemini(model, prompt) {
+// Calls one model and passes its JSON output through `normalize`, which throws if the shape is unusable.
+async function callGemini(model, prompt, normalize) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   let response;
   try {
@@ -285,23 +243,21 @@ async function callGemini(model, prompt) {
   const parts = data?.candidates?.[0]?.content?.parts;
   const output = Array.isArray(parts) ? parts.map((p) => p.text || '').join('') : '';
   if (!output) throw new Error(`empty response (finishReason: ${data?.candidates?.[0]?.finishReason || 'unknown'})`);
-  return normalizePlan(parseModelJson(output));
+  return normalize(parseModelJson(output));
 }
 
 // Try each model in order; retry transient overload errors with backoff.
-async function generatePlan(profile) {
-  if (MOCK_AI) return { plan: MOCK_PLAN, model: 'mock' };
+// Shared by /api/plan and /api/chat.
+async function generateJson(prompt, normalize) {
   if (!GEMINI_API_KEY) {
     throw new HttpError(503, 'The server has no AI API key configured. Set GEMINI_API_KEY or MOCK_AI=1.');
   }
-
-  const prompt = buildPrompt(profile);
   for (const model of TEXT_MODELS) {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt++) {
       try {
-        return { plan: await callGemini(model, prompt), model };
+        return await callGemini(model, prompt, normalize);
       } catch (err) {
-        // Never log the API key or the user's profile; status/message only.
+        // Never log the API key or any user content; status/message only.
         console.warn(`[ai] ${model} attempt ${attempt} failed: ${err.message}`);
         if (!err.retryable || attempt === MAX_ATTEMPTS_PER_MODEL) break;
         await sleep(RETRY_WAITS_MS[attempt - 1]);
@@ -309,6 +265,38 @@ async function generatePlan(profile) {
     }
   }
   throw new HttpError(502, 'The AI service is unavailable right now. Please try again in a moment.');
+}
+
+async function generatePlan(profile) {
+  if (MOCK_AI) return MOCK_PLAN;
+  return generateJson(buildPrompt(profile), normalizePlan);
+}
+
+// Fixed chat answers for MOCK_AI=1. A message containing the word "change"
+// returns the example plan with one day swapped, so the UI can be tested.
+function mockChatReply(message) {
+  if (!/\bchange\b/i.test(message)) {
+    return { reply: 'Mock reply: swap squats for leg press if your knees hurt.', updatedPlan: null };
+  }
+  const updatedPlan = structuredClone(MOCK_PLAN);
+  updatedPlan.summary = 'Mock plan (MOCK_AI=1), updated: Day 2 is now a knee-friendly lower body session.';
+  updatedPlan.weeklyPlan[1] = {
+    day: 'Day 2',
+    focus: 'Lower body (knee-friendly)',
+    exercises: [
+      { name: 'Leg press (partial range)', sets: '4', reps: '10-12', rest: '120s' },
+      { name: 'Hip thrust', sets: '3', reps: '8-10', rest: '120s' },
+      { name: 'Seated leg curl', sets: '3', reps: '10-12', rest: '75s' },
+      { name: 'Calf raise', sets: '3', reps: '12-15', rest: '60s' },
+      { name: 'Plank', sets: '3', reps: '45s', rest: '45s' },
+    ],
+  };
+  return { reply: 'Mock reply: I changed Day 2 to a knee-friendly lower body session. Apply it if you like it.', updatedPlan };
+}
+
+async function generateChatReply(chat) {
+  if (MOCK_AI) return mockChatReply(chat.message);
+  return generateJson(buildChatPrompt(chat), normalizeChatReply);
 }
 
 /* ---------- API routes ---------- */
@@ -339,8 +327,30 @@ async function handleApi(req, res, pathname) {
     if (!codeIsValid(body.code)) throw new HttpError(401, 'Wrong access code.');
     const result = validateProfile(body.profile);
     if (!result.ok) throw new HttpError(400, 'Invalid profile.', { errors: result.errors });
-    const { plan } = await generatePlan(result.profile);
-    return sendJson(res, 200, plan);
+    return sendJson(res, 200, await generatePlan(result.profile));
+  }
+
+  if (pathname === '/api/chat') {
+    if (req.method !== 'POST') throw new HttpError(405, 'Method not allowed.');
+    checkRateLimit('plan', clientIp(req)); // same bucket as /api/plan
+    const body = await readJsonBody(req);
+    if (!codeIsValid(body.code)) throw new HttpError(401, 'Wrong access code.');
+
+    const errors = [];
+    const profileResult = validateProfile(body.profile);
+    if (!profileResult.ok) errors.push(...profileResult.errors);
+    const chatResult = validateChat({ message: body.message, history: body.history });
+    if (!chatResult.ok) errors.push(...chatResult.errors);
+    let plan = null;
+    try {
+      plan = normalizePlan(body.plan);
+    } catch {
+      errors.push('Plan must be a training plan in the format returned by /api/plan.');
+    }
+    if (errors.length) throw new HttpError(400, 'Invalid chat request.', { errors });
+
+    const answer = await generateChatReply({ profile: profileResult.profile, plan, ...chatResult.chat });
+    return sendJson(res, 200, answer);
   }
 
   throw new HttpError(404, 'Not found.');

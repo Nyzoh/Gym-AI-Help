@@ -77,7 +77,22 @@
       </form>
     </section>
 
-    <section id="result" hidden aria-live="polite"></section>
+    <div id="workspace" class="workspace" hidden>
+      <section id="result" aria-live="polite"></section>
+
+      <aside id="chat" class="card chat" aria-label="Chat with your coach">
+        <h2>Ask your coach</h2>
+        <div id="chat-log" class="chat-log" role="log" aria-live="polite">
+          <p id="chat-empty" class="chat-empty">Ask about your plan, or ask for a change, e.g. "Swap squats for something easier on my knees".</p>
+        </div>
+        <form id="chat-form" class="chat-form">
+          <label class="sr-only" for="chat-input">Message to your coach</label>
+          <textarea id="chat-input" rows="2" maxlength="500" placeholder="Type a message…" required></textarea>
+          <button id="chat-send" type="submit">Send</button>
+        </form>
+        <p class="chat-hint">Enter sends, Shift+Enter adds a new line. The chat is not saved.</p>
+      </aside>
+    </div>
   </main>
 
   <footer>General fitness guidance, not medical advice. Consult a doctor before training with an injury.</footer>
