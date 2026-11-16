@@ -16,7 +16,7 @@
   <main>
     <div id="error" class="error" role="alert" hidden></div>
 
-    <section id="gate" class="card" hidden>
+    <section id="gate" class="card gate" hidden>
       <h2>Access code</h2>
       <form id="code-form" class="row">
         <label class="sr-only" for="code">Access code</label>
@@ -25,72 +25,88 @@
       </form>
     </section>
 
-    <section id="profile" class="card" hidden>
-      <h2>Your profile</h2>
-      <form id="profile-form" novalidate>
-        <div class="grid">
-          <label>Weight (kg)
-            <input name="weightKg" type="number" inputmode="decimal" min="30" max="300" step="0.1" required placeholder="75">
-          </label>
-          <label>Height (cm)
-            <input name="heightCm" type="number" inputmode="decimal" min="100" max="250" step="0.1" required placeholder="178">
-          </label>
-          <label>Age
-            <input name="age" type="number" inputmode="numeric" min="13" max="100" step="1" required placeholder="28">
-          </label>
-          <label>Sex
-            <select name="sex" required>
-              <option value="male">Male</option>
-              <option value="female">Female</option>
-              <option value="other">Other / prefer not to say</option>
-            </select>
-          </label>
-          <label>Goal
-            <select name="goal" required>
-              <option value="build muscle">Build muscle</option>
-              <option value="lose fat">Lose fat</option>
-              <option value="strength">Strength</option>
-              <option value="endurance">Endurance</option>
-            </select>
-          </label>
-          <label>Training days per week
-            <select name="trainingDays" required>
-              <option>1</option><option>2</option><option selected>3</option><option>4</option>
-              <option>5</option><option>6</option><option>7</option>
-            </select>
-          </label>
-          <label class="wide">Equipment
-            <select name="equipment" required>
-              <option value="gym">Gym</option>
-              <option value="home">Home (dumbbells, bands)</option>
-              <option value="none">None (bodyweight only)</option>
-            </select>
-          </label>
-          <label class="wide">What do you typically eat?
-            <textarea name="typicalDiet" rows="3" maxlength="500" placeholder="e.g. Oatmeal for breakfast, pasta or rice with chicken for lunch, often takeaway for dinner"></textarea>
-          </label>
-          <label class="wide">Injuries or limitations
-            <textarea name="injuries" rows="2" maxlength="500" placeholder="e.g. Sore left knee, desk job. Leave empty if none."></textarea>
-          </label>
-        </div>
-        <button id="generate" type="submit" class="primary">Generate plan</button>
-      </form>
-    </section>
+    <div id="app" class="app" hidden>
+      <section id="profile" class="card profile">
+        <h2>Your profile</h2>
+        <form id="profile-form" novalidate>
+          <div class="grid">
+            <label>Weight (kg)
+              <input name="weightKg" type="number" inputmode="decimal" min="30" max="300" step="0.1" required placeholder="75">
+            </label>
+            <label>Height (cm)
+              <input name="heightCm" type="number" inputmode="decimal" min="100" max="250" step="0.1" required placeholder="178">
+            </label>
+            <label>Age
+              <input name="age" type="number" inputmode="numeric" min="13" max="100" step="1" required placeholder="28">
+            </label>
+            <label>Sex
+              <select name="sex" required>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>Goal
+              <select name="goal" required>
+                <option value="build muscle">Build muscle</option>
+                <option value="lose fat">Lose fat</option>
+                <option value="strength">Strength</option>
+                <option value="endurance">Endurance</option>
+              </select>
+            </label>
+            <label>Days per week
+              <select name="trainingDays" required>
+                <option>1</option><option>2</option><option selected>3</option><option>4</option>
+                <option>5</option><option>6</option><option>7</option>
+              </select>
+            </label>
+            <label class="wide">Equipment
+              <select name="equipment" required>
+                <option value="gym">Gym</option>
+                <option value="home">Home (dumbbells, bands)</option>
+                <option value="none">None (bodyweight only)</option>
+              </select>
+            </label>
+            <label class="wide">What do you typically eat?
+              <textarea name="typicalDiet" rows="2" maxlength="500" placeholder="e.g. Oatmeal, pasta or rice with chicken, often takeaway for dinner"></textarea>
+            </label>
+            <label class="wide">Injuries or limitations
+              <textarea name="injuries" rows="2" maxlength="500" placeholder="e.g. Sore left knee. Leave empty if none."></textarea>
+            </label>
+          </div>
+          <button id="generate" type="submit" class="primary">Generate plan</button>
+        </form>
+      </section>
 
-    <div id="workspace" class="workspace" hidden>
-      <section id="result" aria-live="polite"></section>
-
-      <aside id="chat" class="card chat" aria-label="Chat with your coach">
-        <h2>Ask your coach</h2>
-        <div id="chat-log" class="chat-log" role="log" aria-live="polite">
-          <p id="chat-empty" class="chat-empty">Ask about your plan, or ask for a change, e.g. "Swap squats for something easier on my knees".</p>
+      <section id="plan" class="card plan" aria-label="Your training plan">
+        <div class="plan-head">
+          <h2>Your week</h2>
+          <button id="toggle-days" type="button" class="ghost" hidden>Expand all</button>
         </div>
+        <p id="saved-note" class="saved-note" hidden>
+          <span id="saved-text"></span>
+          <button id="clear-saved" type="button" class="link">Clear</button>
+        </p>
+        <div id="plan-banner" class="banner" role="status" hidden>
+          <strong>Plan updated by coach</strong>
+          <button id="undo" type="button" class="ghost">Undo</button>
+        </div>
+        <p id="plan-empty" class="muted">Fill in your profile and press "Generate plan". Your week will appear here.</p>
+        <div id="plan-body"></div>
+      </section>
+
+      <aside id="chat" class="card chat" aria-label="Chat with your coach" hidden>
+        <div class="chat-head">
+          <h2>Ask your coach</h2>
+          <button id="chat-toggle" type="button" class="ghost chat-toggle" aria-expanded="true">Hide</button>
+        </div>
+        <div id="chat-log" class="chat-log" role="log" aria-live="polite"></div>
         <form id="chat-form" class="chat-form">
           <label class="sr-only" for="chat-input">Message to your coach</label>
           <textarea id="chat-input" rows="2" maxlength="500" placeholder="Type a message…" required></textarea>
           <button id="chat-send" type="submit">Send</button>
         </form>
-        <p class="chat-hint">Enter sends, Shift+Enter adds a new line. The chat is not saved.</p>
+        <p class="chat-hint">Enter sends, Shift+Enter adds a new line.</p>
       </aside>
     </div>
   </main>
